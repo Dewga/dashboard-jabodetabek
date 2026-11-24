@@ -7,6 +7,7 @@
     --dash-ink: #213126;
     --dash-tint: #e2ece0;
     --rail-text: #f0f6ef;
+    --dash-max-width: 1560px;
 }
 
 .stApp {
@@ -15,14 +16,17 @@
     font-variant-numeric: tabular-nums;
 }
 [data-testid="stHeader"] { background: transparent; }
+.stApp:has(details[open] .st-key-model-testing-details) [data-testid="stHeader"] {
+    background: var(--dash-canvas);
+}
 [data-testid="stMainBlockContainer"] {
-    max-width: 1560px;
+    max-width: var(--dash-max-width);
     padding: 2.9rem 1.6rem 2rem 6.5rem;
 }
 .st-key-nav-rail {
     position: fixed;
     z-index: 12;
-    left: 20px;
+    left: max(20px, calc((100% - var(--dash-max-width)) / 2 + 20px));
     top: 3.55rem;
     width: 60px !important;
     padding: 7px;
@@ -114,22 +118,50 @@
     to { opacity: 1; }
 }
 [data-testid="stMainBlockContainer"] [data-testid="stVerticalBlock"] { gap: .65rem; }
-[data-testid="stMainBlockContainer"] [data-testid="stCaptionContainer"] p { color: var(--dash-muted); }
+[data-testid="stMainBlockContainer"] [data-testid="stCaptionContainer"],
+[data-testid="stMainBlockContainer"] [data-testid="stCaptionContainer"] > div,
+[data-testid="stMainBlockContainer"] [data-testid="stCaptionContainer"] p {
+    color: var(--dash-muted);
+    opacity: 1;
+}
 [data-testid="stMainBlockContainer"] h1 {
     font-size: clamp(1.45rem, 2.5vw, 2rem);
     letter-spacing: -.025em;
-    padding: 0;
+    padding: 0 0 .35rem;
 }
 [data-testid="stMainBlockContainer"] h3 {
     font-size: 1rem;
     padding: 0;
 }
+[data-testid="stMainBlockContainer"] h2 {
+    font-size: 1.25rem;
+    padding-block: .25rem .35rem;
+}
+
+[data-testid="stMainBlockContainer"] .st-key-model-testing-details h3 {
+    padding-block: .35rem .25rem;
+}
+.st-key-model-testing-details [data-testid="stHeading"] [data-testid="stMarkdownContainer"] {
+    margin-bottom: 0;
+}
+.st-key-model-testing-details :is(h2, h3) { scroll-margin-top: 4rem; }
+.st-key-model-testing-details :is(th, td) {
+    white-space: normal;
+    overflow-wrap: anywhere;
+}
 
 .st-key-kpi-0, .st-key-kpi-1, .st-key-kpi-2,
-.st-key-budget-chart, .st-key-budget-ranking, .st-key-size-chart, .st-key-room-chart {
+.st-key-budget-chart, .st-key-budget-ranking, .st-key-size-chart,
+.st-key-project-intro, .st-key-data-distribution, .st-key-model-evaluation, .st-key-model-scenario,
+.st-key-insight-budget, .st-key-insight-ranking {
     background: var(--dash-panel);
     border: 1px solid var(--dash-border);
     border-radius: 12px;
+}
+.st-key-scenario-result {
+    background: var(--dash-tint);
+    border-radius: 8px;
+    padding: 10px 12px;
 }
 .st-key-kpi-0, .st-key-kpi-1, .st-key-kpi-2 { padding: 9px 12px !important; }
 .st-key-budget-chart { padding-bottom: 8px !important; }
@@ -156,19 +188,34 @@ button, summary, [role="combobox"] { min-height: 44px; }
 }
 @media (max-width: 700px) {
     [data-testid="stMainBlockContainer"] { padding: 3.25rem 1rem 6rem; }
+    .st-key-kpi-strip [data-testid="stHorizontalBlock"] {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .5rem;
+    }
+    .st-key-kpi-strip [data-testid="stColumn"]:first-child { grid-column: 1 / -1; }
+    .st-key-kpi-strip [data-testid="stColumn"] { width: auto !important; }
+    .st-key-kpi-strip :is(.st-key-kpi-0, .st-key-kpi-1, .st-key-kpi-2) { padding: 6px 9px !important; }
+    .st-key-model-scenario [data-testid="stForm"] [data-testid="stHorizontalBlock"] {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: .5rem;
+    }
+    .st-key-model-scenario [data-testid="stForm"] [data-testid="stColumn"] { width: auto !important; }
     .st-key-nav-rail {
         left: 50%;
         top: auto;
         bottom: max(12px, env(safe-area-inset-bottom));
-        width: min(260px, calc(100% - 24px)) !important;
+        width: min(420px, calc(100% - 24px)) !important;
         transform: translateX(-50%);
     }
     .st-key-nav-rail {
         display: grid;
-        grid-template-columns: 1fr 1fr;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
         gap: 6px !important;
     }
-    .st-key-nav-rail button p { font-size: .78rem; }
+    .st-key-nav-rail button { flex-direction: column; gap: 1px; }
+    .st-key-nav-rail button p { font-size: .73rem; }
 }
 @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation: none !important; transition: none !important; }

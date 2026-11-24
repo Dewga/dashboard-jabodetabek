@@ -7,13 +7,19 @@ import pandas as pd
 import plotly.graph_objects as go
 import streamlit as st
 from dashboard_components import budget_slider, kpi_counter, region_bars, region_ranking
+from housing_model import BASELINE, CITY_BASELINE, NUMERIC_FEATURES, ROOM_FEATURES, evaluate_models, prepare_model_data
 
 ROOT = Path(__file__).resolve().parent
 DATA_PATH = ROOT / "data" / "Data_Rumah_Jabodetabek.xlsx"
-MENUS = ["Pilihan menurut anggaran", "Spesifikasi rumah"]
+EXPLORATION = ("Anggaran", "Spesifikasi")
 DEFAULT_BUDGET = 1_000_000_000
 PRESETS = [500_000_000, 750_000_000, DEFAULT_BUDGET, 1_500_000_000]
-NAVIGATION = [("Anggaran", ":material/monitoring:"), ("Spesifikasi", ":material/house:")]
+NAVIGATION = [
+    ("Ringkasan", ":material/dashboard:"),
+    ("Eksplorasi", ":material/monitoring:"),
+    ("Model", ":material/insights:"),
+    ("Temuan", ":material/lightbulb:"),
+]
 
 
 def number(value):
@@ -207,9 +213,12 @@ def region_chart_data(sizes, selected, animate=False):
         difference = (f"{'+' if delta > 0 else '−'}{area_text(abs(delta))} dari nilai tengah seluruh pilihan"
                       if delta else "sama dengan nilai tengah seluruh pilihan")
         value = area_text(median)
+        small_sample = count < 10
         samples = f"{number(count)} listing dengan luas valid"
+        if small_sample:
+            samples += " · Sampel kecil"
         middle = f"Rentang tengah {area_text(q1)}–{area_text(q3)}"
-        rows.append(dict(city=city, value=value, median=float(median), count=number(count),
+        rows.append(dict(city=city, value=value, median=float(median), count=number(count), smallSample=small_sample,
                          position=median / (4 * step) * 100, left=q1 / (4 * step) * 100,
                          right=q3 / (4 * step) * 100,
                          tooltip=f"{city} · Median {value} · {samples} · {middle}",
@@ -227,7 +236,8 @@ def select_region():
 
 def metrics(items, animate, previous=None):
     page = st.session_state.page_index
-    for index, (column, (label, value, format_value)) in enumerate(zip(st.columns(len(items), gap="small"), items)):
+    columns = st.container(key="kpi-strip").columns(len(items), gap="small")
+    for index, (column, (label, value, format_value)) in enumerate(zip(columns, items)):
         with column, st.container(border=True, key=f"kpi-{index}"):
             if format_value is None:
                 st.metric(label, value)
@@ -326,8 +336,7 @@ def render_specs(affordable, animate):
         ("Kamar paling umum", bedrooms, None),
         ("Dalam anggaran", len(affordable), number),
     ], animate)
-    main, side = st.columns([1.45, 1], gap="small")
-    with main, st.container(border=True, key="size-chart"):
+    with st.container(border=True, key="size-chart"):
         st.subheader("Luas bangunan per wilayah")
         if sizes.empty:
             st.info("Belum ada luas bangunan yang tercatat untuk pilihan ini.")
@@ -336,8 +345,7 @@ def render_specs(affordable, animate):
                         on_selected_change=select_region, width="stretch")
     grid = room_grid(affordable)
     coverage = int(grid.values.sum())
-    with side, st.container(border=True, key="room-chart"):
-        st.subheader("Kombinasi kamar")
+    with st.expander("Kombinasi kamar"):
         if coverage:
             with st.container(key="room-reveal" if animate else "room-steady"):
                 st.plotly_chart(heatmap_chart(grid, len(affordable)), key="spec_heatmap",
@@ -391,6 +399,11 @@ def select_page(index):
     st.session_state.page_index = index
 
 
+def open_budget_exploration():
+    select_page(1)
+    st.session_state.explore_view = "Anggaran"
+
+
 def render_navigation(index):
     with st.container(key="nav-rail"):
         expanded = st.session_state.get("nav_expanded", True)
@@ -406,6 +419,222 @@ def render_navigation(index):
 
 def toggle_navigation():
     st.session_state.nav_expanded = not st.session_state.get("nav_expanded", True)
+
+
+def render_overview(market):
+    st.title("Potret Harga Rumah Jabodetabek")
+    with st.container(border=True, key="project-intro"):
+        st.header("Gambaran proyek")
+        st.write("Pilihan rumah sekunder berbeda antarwilayah. Proyek PSD Kelompok 3 ini membantu "
+                 "membandingkan opsi dalam batas anggaran dan menguji seberapa baik spesifikasi rumah "
+                 "menjelaskan harga penawaran dalam dataset.")
+        st.button("Jelajahi anggaran", type="primary", key="explore-cta", on_click=open_budget_exploration)
+    st.header("Gambaran data")
+    metrics([
+        ("Listing berharga valid", len(market), number),
+        ("Wilayah", market.Kota.nunique(), number),
+        ("Median harga penawaran", market.Harga_Rp.median(), rupiah),
+    ], False)
+    lower, upper = market.Harga_Rp.quantile([.25, .75])
+    st.caption(f"50% harga tengah {rupiah(lower)}–{rupiah(upper)}")
+    st.caption("Harga penawaran · Periode pengumpulan tidak tercantum")
+    with st.container(border=True, key="data-distribution"):
+        st.subheader("Jumlah listing per wilayah")
+        counts = market.Kota.value_counts()
+        fig = style_chart(go.Figure(go.Bar(
+            x=counts.tolist(), y=counts.index.tolist(), orientation="h",
+            marker_color=["#436b53" if i == 0 else "#9aafa1" for i in range(len(counts))],
+            text=[number(count) for count in counts], textposition="outside",
+            hovertemplate="%{y}: %{text} listing<extra></extra>",
+        )), 230)
+        fig.update_xaxes(range=[0, int(counts.max() * 1.2)])
+        fig.update_yaxes(autorange="reversed", showgrid=False)
+        st.plotly_chart(fig, config={"displayModeBar": False})
+        st.caption("Satu baris mewakili satu listing rumah sekunder.")
+
+
+@st.cache_resource(show_spinner=False, max_entries=2)
+def load_evaluation(clean):
+    return evaluate_models(clean)
+
+
+def model_result(clean):
+    try:
+        with st.spinner("Mengevaluasi model harga penawaran…"):
+            return load_evaluation(clean)
+    except ValueError as error:
+        st.info(f"Model belum bisa dievaluasi. {error}")
+        return None
+
+
+SCENARIO_LABELS = {
+    "Luas_Tanah_m2": "Luas tanah (m²)", "Luas_Bangunan_m2": "Luas bangunan (m²)",
+    "Kamar_Tidur": "Kamar tidur", "Kamar_Mandi": "Kamar mandi",
+}
+
+
+def render_scenario(evaluation, city_errors):
+    with st.container(border=True, key="model-scenario"):
+        st.subheader("Simulasi harga penawaran")
+        city = st.selectbox("Wilayah simulasi", sorted(evaluation.train.Kota.unique()), key="scenario_city")
+        bounds = evaluation.scenario_bounds(city)
+        with st.form("price_scenario"):
+            values = {}
+            for feature, column in zip(NUMERIC_FEATURES, st.columns(2) * 2, strict=True):
+                cast = int if feature in ROOM_FEATURES else float
+                lower, middle, upper = (cast(bounds.loc[row, feature]) for row in ("min", "median", "max"))
+                values[feature] = column.number_input(
+                    SCENARIO_LABELS[feature], min_value=lower, value=middle, max_value=upper,
+                    step=cast(1), key=f"scenario-{city}-{feature}", disabled=lower == upper,
+                    help=f"Rentang pada data latih {lower:g}–{upper:g}.",
+                )
+            submitted = st.form_submit_button("Hitung estimasi", type="primary")
+        if submitted:
+            try:
+                estimate = evaluation.estimate(city, values)
+                with st.container(key="scenario-result"):
+                    st.metric("Estimasi harga penawaran", rupiah(estimate))
+                    if city in city_errors.index:
+                        error = city_errors.loc[city]
+                        st.caption(f"Rata-rata selisih di {city} · {rupiah(error.mae)} dari {number(error['count'])} listing uji")
+            except ValueError as error:
+                st.warning(str(error))
+        if evaluation.selected == BASELINE:
+            st.caption("Patokan terpilih memakai median seluruh data latih. Estimasi sama untuk semua masukan.")
+        if evaluation.selected == CITY_BASELINE:
+            st.caption("Patokan terpilih memakai median wilayah. Estimasi sama untuk semua spesifikasi di wilayah itu.")
+        st.caption("Untuk gambaran harga penawaran. Harga transaksi bisa berbeda.")
+    return city
+
+
+def render_methods(data):
+    st.title("Model harga rumah")
+    clean, excluded = prepare_model_data(data)
+    evaluation = model_result(clean)
+    if evaluation is not None:
+        city_errors = evaluation.city_errors()
+        simulator, chart = st.columns([1, 1.15], gap="small")
+        with simulator:
+            city = render_scenario(evaluation, city_errors)
+        with chart, st.container(border=True, key="model-evaluation"):
+            st.subheader("Seberapa jauh selisih estimasinya?")
+            st.caption("Rata-rata selisih absolut dari harga penawaran di data uji")
+            rows = city_errors.sort_values("mae", ascending=False)
+            fig = style_chart(go.Figure(go.Bar(
+                x=rows.mae.tolist(), y=rows.index.tolist(), orientation="h", width=.48,
+                marker_color=["#436b53" if region == city else "#758d7b" for region in rows.index],
+                text=rows.mae.map(rupiah).tolist(), textposition="outside",
+                customdata=[number(count) for count in rows["count"]],
+                hovertemplate="%{y} · %{text}<br>%{customdata} listing uji<extra></extra>",
+            )), 252)
+            fig.update_layout(margin=dict(l=0, r=12, t=8, b=8))
+            fig.update_xaxes(range=[0, max(1, rows.mae.max() * 1.65)], visible=False)
+            fig.update_yaxes(autorange="reversed", showgrid=False)
+            st.plotly_chart(fig, key="city-model-errors", config={"displayModeBar": False})
+            st.caption(f"{city} dipilih · {number(rows.loc[city, 'count'])} listing uji di wilayah ini")
+    with st.expander("Cara model diuji"), st.container(key="model-testing-details"):
+        render_model_details(data, clean, excluded, evaluation)
+
+
+def render_model_details(data, clean, excluded, evaluation):
+    st.header("Penyiapan data")
+    st.caption(f"{number(len(data))} listing awal · {number(len(clean))} layak untuk model")
+    st.table(pd.DataFrame({"Aturan": excluded.keys(), "Listing dikeluarkan": excluded.values()}),
+             hide_index=True, border="horizontal")
+    st.caption("Aturan berurutan menghitung setiap pengecualian sekali. Simulasi memakai rentang tiap fitur "
+               "di data latih, meskipun kombinasinya mungkin belum pernah tercatat.")
+    if evaluation is None:
+        return
+    predictions = evaluation.predictions
+    city_errors = evaluation.city_errors()
+    metrics([
+        ("Rata-rata galat", predictions.error.mean(), rupiah),
+        ("Median galat", predictions.error.median(), rupiah),
+        ("Listing uji", len(predictions), number),
+    ], False)
+    st.caption(f"{number(len(evaluation.train))} listing latih · "
+               f"{number(predictions.location_group.nunique())} kelompok lokasi uji")
+    with st.container():
+        st.subheader("Harga aktual dibanding estimasi")
+        st.markdown(f"**Terpilih dari validasi data latih:** {evaluation.selected}")
+        actual, predicted = predictions.actual, predictions.predicted
+        low, high = min(actual.min(), predicted.min()), max(actual.max(), predicted.max())
+        fig = go.Figure(go.Scatter(
+            x=actual.tolist(), y=predicted.tolist(), mode="markers",
+            marker=dict(color="#436b53", opacity=.58, size=7),
+            text=[f"{city} · Aktual {rupiah(a)} · Estimasi {rupiah(p)}"
+                  for city, a, p in zip(predictions.Kota, actual, predicted)],
+            hovertemplate="%{text}<extra></extra>",
+        ))
+        fig.add_shape(type="line", x0=low, x1=high, y0=low, y1=high, line=dict(color="#738577", dash="dot"))
+        style_chart(fig, 320)
+        ticks = [100e6, 500e6, 1e9, 5e9, 10e9, 50e9]
+        ticktext = [rupiah(value) for value in ticks]
+        scale = dict(type="log", tickvals=ticks, ticktext=ticktext,
+                     range=[float(np.log10(low)) - .06, float(np.log10(high)) + .06])
+        fig.update_xaxes(title="Harga aktual · skala log", **scale)
+        fig.update_yaxes(title="Estimasi · skala log", **scale)
+        st.plotly_chart(fig, config={"displayModeBar": False})
+        st.caption("Garis putus-putus menunjukkan estimasi yang sama dengan harga aktual.")
+    st.subheader("Perbandingan galat model")
+    scores = evaluation.scores
+    st.table(pd.DataFrame({
+        "Model": scores.model,
+        "Rata-rata validasi": scores.cv_mae.map(rupiah),
+        "Rentang 4 pembagian": [f"{rupiah(low)}–{rupiah(high)}" for low, high in zip(scores.cv_min, scores.cv_max)],
+        "Rata-rata uji": scores.test_mae.map(rupiah),
+    }), hide_index=True, border="horizontal")
+    st.caption("Galat dihitung dari selisih absolut. Nilai lebih kecil berarti estimasi lebih dekat ke harga penawaran.")
+    with st.container():
+        st.subheader("Galat per wilayah")
+        by_city = city_errors.reset_index().rename(columns={"Kota": "Wilayah", "count": "Listing uji"})
+        by_city["Rata-rata galat"] = by_city.pop("mae").map(rupiah)
+        st.table(by_city, hide_index=True, border="horizontal")
+        st.subheader("Contoh estimasi dengan selisih terbesar")
+        worst = predictions.nlargest(3, "error")[["Kota", "actual", "predicted", "error"]]
+        amounts = {"actual": "Harga aktual", "predicted": "Estimasi", "error": "Galat"}
+        st.table(worst.assign(**{col: worst[col].map(rupiah) for col in amounts})
+                 .rename(columns={"Kota": "Wilayah", **amounts}), hide_index=True, border="horizontal")
+    with st.container():
+        st.subheader("Cara pemilihan model")
+        st.write("Model dipilih dari MAE validasi berkelompok pada data latih. Kelompok adalah pasangan wilayah "
+                 "dan lokasi yang dinormalisasi. Data uji memakai kelompok lokasi yang tidak dipakai saat pelatihan.")
+        st.write("Ridge dan gradient boosting dilatih pada log harga lalu dikembalikan ke rupiah. Dua patokan "
+                 "menggunakan median seluruh data latih dan median per wilayah. Jika wilayah belum ada pada data latih "
+                 "suatu pembagian, patokan per wilayah memakai median global.")
+        st.write("Cicilan, kondisi, nama listing, dan lokasi rinci tidak digunakan sebagai fitur.")
+        st.write("Luas dan jumlah kamar ditransformasi dengan log(1 + nilai) sebelum penskalaan. "
+                 "Penskalaan dan pengodean wilayah dipelajari hanya dari data latih masing-masing pembagian.")
+
+
+def render_findings(market):
+    st.title("Temuan")
+    prices = market.Harga_Rp
+    at_500, at_750, at_1000 = (int(prices.le(price).sum()) for price in (500e6, 750e6, 1e9))
+    at_start = budget_breakdown(market, market.loc[prices.le(500e6)])
+    by_share = at_start.iloc[0]
+    by_count = at_start.sort_values("matches", ascending=False, kind="stable").iloc[0]
+    with st.container(border=True, key="insight-budget"):
+        st.subheader("Tambahan pilihan tiap kenaikan Rp250 juta")
+        ranges = ["Rp500–750 juta", "Rp750 juta–Rp1 miliar"]
+        gains = [at_750 - at_500, at_1000 - at_750]
+        labels = [f"+{number(gain)} listing" for gain in gains]
+        fig = style_chart(go.Figure(go.Bar(
+            x=gains, y=ranges, orientation="h", width=.52,
+            marker_color=["#436b53", "#769381"],
+            text=labels, textposition="outside", cliponaxis=False,
+            hovertemplate="%{y} · %{text}<extra></extra>",
+        )), 135)
+        fig.update_layout(margin=dict(l=0, r=16, t=6, b=12))
+        fig.update_xaxes(range=[0, max(1, max(gains) * 1.5)], visible=False)
+        fig.update_yaxes(autorange="reversed", showgrid=False)
+        st.plotly_chart(fig, key="budget-gains", config={"displayModeBar": False})
+    with st.container(border=True, key="insight-ranking"):
+        st.subheader("Pilihan terbanyak hingga Rp500 juta")
+        count, share = st.columns(2, gap="small")
+        count.metric(f"Jumlah pilihan · {by_count.Kota}", f"{number(by_count.matches)} listing")
+        share.metric(f"Bagian dari listing wilayah · {by_share.Kota}", percent(by_share.share))
+    st.markdown("**Saran:** Pilih wilayah dengan banyak opsi dalam anggaran, lalu bandingkan rumah yang luasnya serupa.")
 
 
 def main():
@@ -427,15 +656,31 @@ def main():
 
     index = st.session_state.setdefault("page_index", 0)
     render_navigation(index)
-    render_page(index, market, regions)
+    if index != 1:
+        # Retain exploration widgets while their page is not mounted.
+        for key in ("budget", "regions", "explore_view", "ranking_sort", "listing_search", "similar_min", "similar_max"):
+            if key in st.session_state:
+                st.session_state[key] = st.session_state[key]
+        st.session_state.rendered_page = index
+    if index == 0:
+        render_overview(market)
+    elif index == 1:
+        render_exploration(market, regions)
+    elif index == 2:
+        render_methods(data)
+    else:
+        render_findings(market)
 
 
-def render_page(index, market, regions):
-    animate = st.session_state.get("rendered_page") != index
+def render_exploration(market, regions):
     previous_budget = st.session_state.pop("chart_previous_budget", None)
-    st.session_state.rendered_page = index
-    title, control = st.columns([3, 1], gap="small", vertical_alignment="center")
-    title.title(MENUS[index])
+    title, tabs, control = st.columns([2, 1.4, 1.15], gap="small", vertical_alignment="center")
+    title.title("Eksplorasi")
+    view = tabs.radio("Tampilan eksplorasi", EXPLORATION, horizontal=True, key="explore_view",
+                      label_visibility="collapsed")
+    page = (1, view)
+    animate = st.session_state.get("rendered_page") != page
+    st.session_state.rendered_page = page
     with control, st.popover("Anggaran & wilayah", icon=":material/tune:", width="stretch"):
         st.caption("Pintasan anggaran")
         with st.container(horizontal=True, gap="small"):
@@ -443,7 +688,8 @@ def render_page(index, market, regions):
                 st.button(rupiah(preset), key=f"preset-{preset}", on_click=apply_preset, args=(preset,))
         budget = st.number_input("Anggaran maksimal (Rp)", min_value=0, max_value=1_000_000_000_000_000,
                                  step=50_000_000, key="budget")
-        chosen = st.multiselect("Wilayah", regions, default=regions, key="regions")
+        st.session_state.setdefault("regions", regions)
+        chosen = st.multiselect("Wilayah", regions, key="regions")
         st.button("Reset filter", key="reset_filters", on_click=reset_filters, args=(regions,))
 
     scope = "Semua wilayah" if len(chosen) == len(regions) else ", ".join(chosen)
@@ -457,12 +703,11 @@ def render_page(index, market, regions):
     if st.session_state.get("region_focus") not in affordable.loc[
             positive(affordable.Luas_Bangunan_m2), "Kota"].unique():
         st.session_state.region_focus = None
-    with st.container(key=f"view-{index}"):
-        if index == 0:
+    with st.container(key=f"view-{EXPLORATION.index(view)}"):
+        if view == "Anggaran":
             render_budget(market, affordable, budget, animate, previous_budget)
         else:
             render_specs(affordable, animate)
-    st.caption("Sumber: Data_Rumah_Jabodetabek.xlsx · Harga penawaran rumah sekunder")
 
 
 if __name__ == "__main__":

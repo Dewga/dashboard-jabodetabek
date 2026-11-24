@@ -126,7 +126,7 @@ region_bars = st.components.v2.component(
             buttons.set(row.city, button);
           }
           button.querySelector(".city").textContent = row.city;
-          button.querySelector("small").textContent = row.count + " listing";
+          button.querySelector("small").textContent = row.count + " listing" + (row.smallSample ? " · Sampel kecil" : "");
           button.title = row.tooltip;
           button.setAttribute("aria-label", row.tooltip);
           button.onclick = () => select(row.city);
@@ -179,6 +179,7 @@ budget_slider = st.components.v2.component(
       .readout span, .hint { color: #4c6052; font-size: .75rem; }
       .readout .difference { color: #213126; font-weight: 600; }
       .plot { position: relative; height: 244px; }
+      @media (max-width: 700px) { .plot { height: 210px; } }
       canvas { display: block; width: 100%; height: 100%; }
       .active {
         position: absolute; inset: 0 12px 33px 47px; width: calc(100% - 59px);

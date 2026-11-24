@@ -1,6 +1,6 @@
 # Potret Harga Rumah Jabodetabek
 
-Dashboard Streamlit untuk membandingkan pilihan rumah berdasarkan anggaran di lima wilayah Jabodetabek.
+Dashboard Streamlit untuk membandingkan pilihan rumah dan menguji estimasi harga penawaran di lima wilayah Jabodetabek.
 
 ## Menjalankan di Windows
 
@@ -14,14 +14,13 @@ Jika `.venv` sudah ada, gunakan lingkungan tersebut. Buka http://localhost:8501.
 
 ## Cara membaca dashboard
 
-- **Pilihan menurut anggaran** menunjukkan jumlah kumulatif listing dan ranking persentase per wilayah. Penyebut ranking mencakup seluruh listing dengan harga valid di tiap wilayah. Batas anggaran bersifat inklusif.
-- **Spesifikasi rumah** merangkum luas bangunan tengah per wilayah dan kombinasi kamar untuk listing yang masuk anggaran. Tabel listing, pencarian, dan unduhan CSV ada di bawah grafik.
-- Pilihan anggaran dan wilayah berlaku di kedua halaman. Nilai awal anggaran Rp1 miliar.
+- **Ringkasan** menjelaskan tujuan proyek, cakupan data, dan komposisi listing per wilayah.
+- **Eksplorasi** memuat grafik dan pembanding anggaran, ranking, serta rentang luas bangunan. Heatmap kamar, perbandingan luas serupa, dan tabel listing dengan CSV tersedia di panel detail. Anggaran awal Rp1 miliar, batasnya inklusif dan berlaku pada kedua tampilan eksplorasi.
+- **Metode dan Model** menjelaskan aturan kelayakan, pemisahan berdasarkan kelompok lokasi, MAE validasi dan uji, serta simulasi harga penawaran. Model dilatih saat pertama dibutuhkan dan disimpan dalam cache berdasarkan data yang digunakan.
+- **Temuan** merangkum hasil eksplorasi dan evaluasi model menggunakan cakupan workbook, terpisah dari filter pengguna.
 
 Sumber data adalah `data/Data_Rumah_Jabodetabek.xlsx`, sheet `Data`. Angka menunjukkan harga penawaran rumah sekunder. Workbook tidak memuat periode pengumpulan. Setiap baris dihitung sebagai satu listing.
 
-## Deploy di Streamlit Community Cloud
+Untuk deployment, sertakan `housing_model.py` bersama `app.py`, komponen dashboard, CSS, konfigurasi Streamlit, workbook, dan `requirements.txt`.
 
-Unggah isi folder ini ke lokasi `app.py` pada repo GitHub. Pertahankan folder `data/` dan `.streamlit/`.
-
-Untuk deploy baru, pilih repository dan branch di Streamlit Community Cloud. Jika file berada di root repo, isi **Main file path** dengan `app.py`. Untuk memperbarui app yang sudah terhubung, commit file ke branch dan lokasi yang dipakai app tersebut.
+Jalankan pengujian dengan `.\.venv\Scripts\python.exe -m unittest -v`.
